@@ -1,0 +1,45 @@
+# Dependencies and package-manager caches
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+
+# Generated validation output, archives and temporary exports
+BUILD-VERIFICATION.json
+outputs/
+artifacts/
+coverage/
+work/
+tmp/
+temp/
+*.zip
+*.tmp
+*.temp
+*.log
+*.bak
+*.swp
+*.swo
+*.tsbuildinfo
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+*-library-identity.json
+
+# OS and editor caches
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+.cache/
+
+# dist/ is intentionally committed for direct Figma Desktop import.

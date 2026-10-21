@@ -1,0 +1,17 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const root = path.resolve(__dirname, '..');
+const read = p => fs.readFileSync(path.join(root, p), 'utf8');
+fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+const exporter = read('src/exporter.js');
+const main = read('src/main.js').replace("const { createExporter, safeName } = require('./exporter');", 'const { createExporter, safeName } = __exporter;');
+const code = '(function(){\nconst __exporter = (function(){const module={exports:{}};\n' + exporter + '\nreturn module.exports;})();\n' + main + '\n})();\n';
+new vm.Script(code, { filename: 'dist/code.js' });
+const zip = read('src/zip.js'), ui = read('src/ui.js');
+new vm.Script(zip); new vm.Script(ui);
+const html = read('src/ui.html').replace('/* ZIP_MODULE */', () => zip).replace('/* UI_MODULE */', () => ui);
+fs.writeFileSync(path.join(root, 'dist/code.js'), code);
+fs.writeFileSync(path.join(root, 'dist/ui.html'), html);
+console.log('Built dist/code.js + dist/ui.html (no dependencies)');

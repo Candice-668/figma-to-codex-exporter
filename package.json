@@ -1,0 +1,13 @@
+{
+  "name": "figma-to-codex-exporter",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Offline Figma Plugin API design handoff exporter",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "package": "node scripts/package.cjs"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}
