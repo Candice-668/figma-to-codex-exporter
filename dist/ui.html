@@ -1,0 +1,381 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;padding:22px;background:var(--figma-color-bg,#fafafa);color:var(--figma-color-text,#202124);font:12px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}h1{font-size:20px;margin:4px 0}p{margin:8px 0}.muted{color:var(--figma-color-text-secondary,#777)}.badge{font-size:10px;letter-spacing:1.5px;color:#6377ed}.card{padding:12px;border:1px solid var(--figma-color-border,#ddd);border-radius:10px;margin:12px 0}label{display:block;margin:8px 0}select,input[type=text],input[type=number]{background:var(--figma-color-bg,#fff);color:inherit;border:1px solid var(--figma-color-border,#ccc);border-radius:4px;padding:5px}select{width:100%}input{accent-color:#5668e8}button{width:100%;padding:9px;border:0;border-radius:7px;background:#5668e8;color:#fff;font-weight:600;cursor:pointer;margin-top:7px}button:disabled{opacity:.45;cursor:default}.secondary{background:transparent;color:inherit;border:1px solid var(--figma-color-border,#ccc)}#status{margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto}#cancel,progress{display:none}progress{width:100%}.foot{font-size:11px}.row{padding:9px 0;border-bottom:1px solid var(--figma-color-border,#ddd)}.row label{overflow-wrap:anywhere}.mapping{display:grid;grid-template-columns:1fr 1fr;gap:5px}.mapping input{width:100%;min-width:0}#candidates{max-height:240px;overflow:auto}.inline{display:flex;gap:8px}.inline>*{flex:1}input[type=file]{width:100%}
+</style></head><body>
+<div class="badge">LOCAL DESIGN HANDOFF · v1.1.0</div><h1>Figma to Codex Exporter</h1>
+<p class="muted">批量设计交付 · 版本对比 · 响应式辅助</p>
+<label>导出范围<select id="scope"><option value="selected">当前选中的 Frame / 组件 / 实例</option><option value="current-page">扫描当前页面</option><option value="document">扫描全部 Figma 页面</option></select></label>
+<button class="secondary" id="scan">扫描导出对象</button>
+<div class="card"><div id="selection">正在连接 Figma…</div><button class="secondary" id="refresh">刷新选择</button><div id="candidates"></div></div>
+<p class="muted foot">每批最多 100 个。嵌套对象随父级完整导出。可选填同一页面分组、断点标签及最小/最大视口宽度；留空不推断媒体查询。</p>
+<div class="inline"><label>PNG 清晰度<select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="3">3×</option></select></label><label><input type="checkbox" id="allPng"> 每个可见图层额外导出 PNG</label></div>
+<div class="card"><label>旧版本快照（可选，导入 design.json）<input type="file" id="baseline" accept=".json,application/json"></label><div id="baselineInfo" class="muted">未设置基线；下次导出可与本次成功结果比较。</div><button class="secondary" id="clearBaseline">清除对比基线</button></div>
+<button id="export" disabled>导出设计 ZIP</button><button id="download" hidden>保存 ZIP</button><button class="secondary" id="cancel">取消导出</button>
+<progress id="progress"></progress><div id="status" role="status" aria-live="polite">请选择导出对象。</div>
+<p class="muted foot">本地处理 · 无网络 / Token / 付费功能<br>ZIP 包含 JSON、预览、SVG/PNG、差异、响应式数据及 Codex 说明。原型数据不等于实际网页行为。</p>
+<script>/* ZIP32, STORE method. No CDN or third-party dependency. UTF-8 names + CRC32. */
+(function (scope) {
+  'use strict';
+  const table = Array.from({ length: 256 }, (_, n) => {
+    for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+    return n >>> 0;
+  });
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (const b of bytes) c = table[(c ^ b) & 255] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+  function bytes(value) {
+    if (typeof value === 'string') return new TextEncoder().encode(value);
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    return Uint8Array.from(value);
+  }
+  function createZip(files) {
+    if (files.length > 65535) throw new Error('ZIP32 文件数量超限');
+    const locals = [], central = [], names = new Set();
+    let offset = 0, centralSize = 0;
+    for (const file of files) {
+      if (!file.path || /(^|\/)\.\.($|\/)|^\/|\\|\x00|:/.test(file.path) || names.has(file.path)) throw new Error('无效或重复 ZIP 路径');
+      names.add(file.path);
+      const name = bytes(file.path), data = bytes(file.bytes);
+      if (name.length > 65535 || data.length > 0xffffffff) throw new Error('ZIP32 文件大小超限');
+      const crc = crc32(data), local = new Uint8Array(30 + name.length), l = new DataView(local.buffer);
+      l.setUint32(0, 0x04034b50, true); l.setUint16(4, 20, true); l.setUint16(6, 0x800, true);
+      l.setUint16(12, 33, true); // 1980-01-01
+      l.setUint32(14, crc, true); l.setUint32(18, data.length, true); l.setUint32(22, data.length, true);
+      l.setUint16(26, name.length, true); local.set(name, 30);
+      const entry = new Uint8Array(46 + name.length), c = new DataView(entry.buffer);
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x800, true);
+      c.setUint16(14, 33, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+      c.setUint16(28, name.length, true); c.setUint32(42, offset, true); entry.set(name, 46);
+      locals.push(local, data); central.push(entry);
+      offset += local.length + data.length; centralSize += entry.length;
+      if (offset + centralSize + 22 > 0xffffffff) throw new Error('ZIP32 总大小超限');
+    }
+    const end = new Uint8Array(22), e = new DataView(end.buffer);
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
+    e.setUint32(12, centralSize, true); e.setUint32(16, offset, true);
+    const out = new Uint8Array(offset + centralSize + 22);
+    let cursor = 0;
+    for (const part of [...locals, ...central, end]) { out.set(part, cursor); cursor += part.length; }
+    return out;
+  }
+  const api = { createZip, crc32 };
+  if (typeof module !== 'undefined') module.exports = api;
+  else scope.ExporterZip = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script><script>/* Pure, shared handoff analysis; no Figma, DOM, network or filesystem access. */
+(function(scope){
+  'use strict';
+  function framesOf(design) {
+    if (!design || design.generator !== 'Figma to Codex Exporter') throw new Error('请选择本插件导出的 design.json。');
+    const frames = design.kind === 'batch' ? design.frames : [{id:design.root && design.root.id,name:design.root && design.root.name,basePath:'',design}];
+    if (!Array.isArray(frames) || !frames.length || frames.length>100) throw new Error('设计快照的导出对象数量无效。');
+    let count=0;const ids=new Set(),allNodeIds=new Set();
+    for(const frame of frames){
+      if(!frame.design || !frame.design.root || frame.design.root.id!==frame.id || typeof frame.id!=='string' || ids.has(frame.id)) throw new Error('设计快照的根节点无效或重复。');
+      ids.add(frame.id);
+      const stack=[{n:frame.design.root,depth:0}],nodeIds=new Set();
+      while(stack.length){
+        const {n,depth}=stack.pop();
+        if(++count>20000 || depth>200 || !n || typeof n.id!=='string' || typeof n.type!=='string' || nodeIds.has(n.id) || allNodeIds.has(n.id)) throw new Error('设计快照图层无效、重复或超过限制。');
+        nodeIds.add(n.id);allNodeIds.add(n.id);
+        if(n.children!==undefined && !Array.isArray(n.children)) throw new Error('children 必须是数组。');
+        for(const child of n.children||[])stack.push({n:child,depth:depth+1});
+      }
+    }
+    return frames;
+  }
+  function stable(v,depth){
+    depth=depth||0;if(depth>220)throw new Error('快照属性嵌套过深。');
+    if(v===undefined)return null;
+    if(!v || typeof v!=='object')return v;
+    if(Array.isArray(v))return v.map(x=>stable(x,depth+1));
+    const out=Object.create(null);
+    for(const k of Object.keys(v).sort())if(!['assetPath','assets'].includes(k))out[k]=stable(v[k],depth+1);
+    return out;
+  }
+  const same=(a,b)=>JSON.stringify(stable(a))===JSON.stringify(stable(b));
+  function compact(v){const s=JSON.stringify(v);return s && s.length>4000 ? {excerpt:s.slice(0,4000),characters:s.length,truncated:true} : v;}
+  const GROUPS={
+    geometry:['x','y','width','height','rotation','relativeTransform'],
+    text:['text'],
+    appearance:['fills','strokes','strokeWeight','strokeAlign','strokeCap','strokeJoin','strokeTopWeight','strokeRightWeight','strokeBottomWeight','strokeLeftWeight','dashPattern','opacity','blendMode','effects','cornerRadius','topLeftRadius','topRightRadius','bottomLeftRadius','bottomRightRadius','cornerSmoothing','fillStyleId','strokeStyleId','effectStyleId','boundVariables','vectorPaths','vectorNetwork','arcData','pointCount','innerRadius'],
+    layout:['constraints','layoutMode','layoutWrap','primaryAxisSizingMode','counterAxisSizingMode','primaryAxisAlignItems','counterAxisAlignItems','counterAxisAlignContent','paddingTop','paddingRight','paddingBottom','paddingLeft','itemSpacing','counterAxisSpacing','layoutAlign','layoutGrow','layoutPositioning','layoutSizingHorizontal','layoutSizingVertical','minWidth','maxWidth','minHeight','maxHeight','gridRowCount','gridColumnCount','gridRowGap','gridColumnGap','gridRowSizes','gridColumnSizes'],
+    layers:['name','type','parentId','siblingIndex','visible','effectiveVisible','clipsContent','isMask','maskType'],
+    components:['mainComponent','componentProperties','variantProperties','overrides','componentPropertyDefinitions']
+  };
+  function flatten(frames){
+    const map=new Map();
+    for(const frame of frames){
+      const stack=[frame.design.root];
+      while(stack.length){const n=stack.pop();map.set(n.id,{node:n,frameId:frame.id});for(const c of n.children||[])stack.push(c);}
+    }
+    return map;
+  }
+  function compareDesigns(before,after){
+    const oldFrames=framesOf(before),newFrames=framesOf(after);
+    const result={schemaVersion:'1.0.0',status:'compared',matching:'node-id',identityConfidence:'node-id-and-document-name-only',requiresSameFigmaFile:true,
+      baselineExportedAt:before.exportedAt||null,currentExportedAt:after.exportedAt||null,
+      note:'仅比较导出范围内的节点；移出范围也会显示为 removed，不能据此断言已从 Figma 文件删除。跨文件复制可能改变 ID。',
+      summary:{added:0,removed:0,modified:0},changes:[],truncatedChanges:0,resources:[]};
+    if(before.document && after.document && before.document.name!==after.document.name){result.status='incompatible-source';result.reason='文件名称不同，不能可靠确认来自同一设计文件。';return result;}
+    const oldMap=flatten(oldFrames),newMap=flatten(newFrames);
+    function add(change){if(result.changes.length<2000)result.changes.push(change);else result.truncatedChanges++;}
+    for(const [id,entry]of newMap){
+      const old=oldMap.get(id);
+      if(!old){result.summary.added++;add({kind:'added',nodeId:id,name:entry.node.name,frameId:entry.frameId});continue;}
+      const fields=[],categories=[];
+      for(const category of Object.keys(GROUPS)){
+        let changed=false;
+        for(const key of GROUPS[category])if(!same(old.node[key],entry.node[key])){changed=true;fields.push({field:key,before:compact(old.node[key]),after:compact(entry.node[key])});}
+        if(changed)categories.push(category);
+      }
+      if(old.frameId!==entry.frameId){categories.push('layers');fields.push({field:'exportRootId',before:old.frameId,after:entry.frameId});}
+      if(fields.length){result.summary.modified++;add({kind:'modified',nodeId:id,name:entry.node.name,frameId:entry.frameId,categories:[...new Set(categories)],fields});}
+    }
+    for(const [id,entry]of oldMap)if(!newMap.has(id)){result.summary.removed++;add({kind:'removed',nodeId:id,name:entry.node.name,frameId:entry.frameId});}
+    for(const frame of newFrames){const old=oldFrames.find(f=>f.id===frame.id);if(old)for(const key of ['styles','variables'])if(!same(old.design[key],frame.design[key]))result.resources.push({frameId:frame.id,field:key,status:'changed'});}
+    return result;
+  }
+  function responsiveReport(design,mapping){
+    const frames=framesOf(design),groups=new Map(),out=[];mapping=mapping||{};
+    for(const frame of frames){
+      const root=frame.design.root,setting=mapping[frame.id]||{},group=typeof setting.group==='string'?setting.group.trim().slice(0,120):'';
+      const bp={label:typeof setting.label==='string'?setting.label.slice(0,120):null,source:'user-supplied',minWidth:null,maxWidth:null};
+      for(const key of ['minWidth','maxWidth'])if(setting[key]!==undefined && setting[key]!==null && setting[key]!==''){
+        const value=Number(setting[key]);if(!Number.isFinite(value)||value<0||value>100000)throw new Error('断点宽度必须是 0–100000 的数字。');bp[key]=value;
+      }
+      if(bp.minWidth!==null && bp.maxWidth!==null && bp.minWidth>bp.maxWidth)throw new Error('断点最小宽度不能大于最大宽度。');
+      if(bp.minWidth===null && bp.maxWidth===null && !bp.label)bp.source='unavailable';
+      bp.rangeStatus=bp.minWidth===null && bp.maxWidth===null?'manual-input-required':'user-supplied';
+      const item={frameId:frame.id,name:frame.name,designViewport:{width:root.width,height:root.height,source:'observed-frame-size'},group:group||null,breakpoint:bp,layout:[]};
+      const stack=[root];
+      while(stack.length){
+        const n=stack.pop(),observed={};
+        for(const key of [...GROUPS.layout,'width','height','itemReverseZIndex','strokesIncludedInLayout'])if(n[key]!==undefined)observed[key]=n[key];
+        const hints=[];
+        if(n.layoutMode==='HORIZONTAL'||n.layoutMode==='VERTICAL')hints.push({suggestion:'CSS flex layout',direction:n.layoutMode==='HORIZONTAL'?'row':'column',source:'inferred-from-auto-layout',requiresValidation:true});
+        if(n.layoutMode==='GRID')hints.push({suggestion:'CSS grid layout',source:'inferred-from-auto-layout',requiresValidation:true});
+        if(n.layoutWrap==='WRAP')hints.push({suggestion:'Allow wrapping',source:'inferred-from-auto-layout',requiresValidation:true});
+        if(n.layoutSizingHorizontal==='FILL'||n.layoutGrow>0)hints.push({suggestion:'May stretch to parent width',source:'inferred-from-sizing',requiresValidation:true});
+        item.layout.push({nodeId:n.id,observed,hints});for(const c of n.children||[])stack.push(c);
+      }
+      out.push(item);if(group){if(!groups.has(group))groups.set(group,[]);groups.get(group).push(item);}
+    }
+    const groupList=[...groups].map(([name,items])=>({name,source:'user-supplied',frameIds:items.map(x=>x.frameId),gaps:[],warnings:items.some(x=>x.breakpoint.rangeStatus==='manual-input-required')?['部分设计尚未指定媒体查询范围。']:[]}));
+    for(const group of groupList){const items=groups.get(group.name);for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+      const a=items[i].breakpoint,b=items[j].breakpoint;
+      if(a.source!=='unavailable'&&b.source!=='unavailable'&&Math.max(a.minWidth??0,b.minWidth??0)<=Math.min(a.maxWidth??Infinity,b.maxWidth??Infinity))group.warnings.push('断点范围可能重叠：'+items[i].name+' / '+items[j].name);
+    }
+      const ranges=items.map(x=>x.breakpoint).filter(x=>x.rangeStatus==='user-supplied').map(x=>({min:x.minWidth??0,max:x.maxWidth??Infinity})).sort((a,b)=>a.min-b.min);
+      let end=ranges.length?ranges[0].max:0;
+      for(let i=1;i<ranges.length;i++){if(ranges[i].min>end)group.gaps.push({minExclusive:end,maxExclusive:ranges[i].min,status:'manual-input-required'});end=Math.max(end,ranges[i].max);}
+      if(group.gaps.length)group.warnings.push('指定断点之间存在未覆盖范围，需要手动决定布局。');
+    }
+    return {schemaVersion:'1.0.0',note:'Frame 宽度是设计样本，不是 CSS 媒体查询阈值；不会自动把不同名称/宽度的 Frame 认定为同一页面。',frames:out,groups:groupList,
+      unavailable:[{field:'productionMediaQueries',status:'manual-input-required',reason:'Figma Frame 不定义网页实际 CSS 断点。'},{field:'runtimeInteractionAndBackend',status:'unavailable',reason:'Plugin API 不提供真实网站运行逻辑或后端实现。'},{field:'exactBrowserLayout',status:'manual-validation-required',reason:'浏览器字体、换行和布局行为需要运行时验证。'}]};
+  }
+  function codexInstructions(design,diff,responsive){
+    return '# Codex 设计交付说明\n\n版本：'+design.generatorVersion+'\n\n'+
+      '1. 先读取 design.json；批量导出的每个 frames 项包含 basePath，子 design 内所有素材路径均相对其 basePath。\n'+
+      '2. 对照每个对象的 preview.png，复用 SVG/PNG/原图。原始图层名保留在 JSON，文件名做 Windows 安全字符替换，并附节点 ID 防止重名。不要拉伸素材。\n'+
+      '3. text.segments 保留混合字体、字号、行高、间距和颜色；缺少的字体需手动安装或明确协商替代。\n'+
+      '4. x/y 相对父层，absoluteTransform 相对页面，transformRelativeToRoot 是根节点坐标系。使用布局、Padding、Gap、constraints 还原结构。\n'+
+      '5. 读取 responsive.json：observed 是设计事实，hints 是待验证建议，断点分组/阈值由用户指定。未指定阈值时先询问，不要编造。\n'+
+      '6. diff.json 状态为 '+diff.status+'。差异按同一 Figma 文件中的节点 ID 匹配；导出范围变化也可能产生新增/移除。截断详情请查新旧完整 JSON。\n'+
+      '7. reactions（若 API 支持）只是原型配置。真实网页交互、网络/后端、未暴露参数见 unavailable，需手动补充，不得假装已实现。\n'+
+      '8. 首先检查 warnings，再实现并在浏览器中验证断点、字体、换行和视觉。\n\n'+
+      '资源与 JSON 均为本地导出，不包含字体二进制或自动生成的生产代码。\n';
+  }
+  const api={framesOf,compareDesigns,responsiveReport,codexInstructions};
+  if(typeof module!=='undefined')module.exports=api;else scope.ExporterHandoff=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
+</script><script>'use strict';
+const $ = id => document.getElementById(id);
+let valid = false, busy = false, currentRun = 0, incoming = null, files = [], zipUrl = null, filename = '', chunksBytes = 0, jsonParts = null, jsonLength = 0;
+let selectionReceived = false, startupAttempts = 0, startupTimer = null;
+let rows = [], baseline = null, baselineForRun = null, currentDesign = null, runMapping = {}, latestDiff = null;
+const savedSettings = new Map();
+const MESSAGE_TYPES = new Set(['selection','candidates','begin','progress','file-start','file-chunk','file-end','design-start','design-chunk','design-end','complete','error']);
+function post(message) { parent.postMessage({ pluginMessage: message }, '*'); }
+function showStatus(text) { $('status').textContent = text; }
+function mode() { return $('scope').value || 'selected'; }
+function updateExport() {
+  const count=rows.filter(r=>r.check.checked).length;
+  $('export').disabled=busy || (rows.length ? count<1 || count>100 : !valid || mode()!=='selected');
+}
+function mapping() {
+  const out=Object.create(null);
+  for(const row of rows){
+    const value={group:row.group.value,label:row.label.value,minWidth:row.minWidth.value,maxWidth:row.maxWidth.value};
+    savedSettings.set(row.id,value);
+    if(row.check.checked)out[row.id]=value;
+  }
+  return out;
+}
+function renderItems(items) {
+  mapping(); rows=[]; $('candidates').replaceChildren();
+  for(const item of items){
+    const card=document.createElement('div');card.className='row';
+    const label=document.createElement('label'),check=document.createElement('input');
+    check.type='checkbox';check.checked=items.length<=100;
+    const text=document.createElement('span');text.textContent=' '+item.name+' · '+item.type+' · '+item.width+'×'+item.height+' · '+item.pageName;
+    label.appendChild(check);label.appendChild(text);card.appendChild(label);
+    const grid=document.createElement('div');grid.className='mapping';
+    const row={id:item.id,check},saved=savedSettings.get(item.id)||{};
+    for(const [key,placeholder]of [['group','页面分组（可选）'],['label','断点标签（可选）'],['minWidth','最小视口宽度 px'],['maxWidth','最大视口宽度 px']]){
+      const input=document.createElement('input');input.type=key.includes('Width')?'number':'text';input.placeholder=placeholder;input.title=placeholder;
+      input.value=saved[key]??'';input.disabled=busy;if(input.type==='number'){input.min='0';input.max='100000';}else input.maxLength=120;
+      row[key]=input;grid.appendChild(input);
+    }
+    check.disabled=busy;check.onchange=updateExport;card.appendChild(grid);$('candidates').appendChild(card);rows.push(row);
+  }
+  updateExport();
+}
+function addText(path,value) { files.push({path,bytes:new TextEncoder().encode(typeof value==='string'?value:JSON.stringify(value,null,2))}); }
+function analyze(json) {
+  currentDesign=JSON.parse(json);ExporterHandoff.framesOf(currentDesign);
+  const responsive=ExporterHandoff.responsiveReport(currentDesign,runMapping);
+  latestDiff=baselineForRun?ExporterHandoff.compareDesigns(baselineForRun,currentDesign):{schemaVersion:'1.0.0',status:'no-baseline',reason:'未提供前一次设计快照。',summary:{added:0,removed:0,modified:0},changes:[]};
+  currentDesign.handoff={instructions:'CODEX-README.md',responsive:'responsive.json',diff:'diff.json',diffSummary:'diff.md'};
+  addText('design.json',currentDesign);addText('responsive.json',responsive);addText('diff.json',latestDiff);
+  addText('diff.md','# 设计差异报告\n\n状态：'+latestDiff.status+'\n\n'+(latestDiff.reason||latestDiff.note||'')+'\n\n新增 '+latestDiff.summary.added+'；移出范围 '+latestDiff.summary.removed+'；修改 '+latestDiff.summary.modified+'。\n\n'+(latestDiff.changes||[]).slice(0,100).map(c=>'- '+c.kind+' '+c.nodeId+' '+String(c.name||'').replace(/[\r\n]/g,' ')+' '+(c.categories||[]).join(', ')).join('\n')+'\n\n详细字段见 diff.json；截断内容参考新旧完整 design.json。\n');
+  addText('CODEX-README.md',ExporterHandoff.codexInstructions(currentDesign,latestDiff,responsive));
+}
+function stopStartupTimer() { if (startupTimer !== null) clearInterval(startupTimer); startupTimer = null; }
+function requestSelection() {
+  selectionReceived = false; startupAttempts = 0; stopStartupTimer();
+  $('selection').textContent = '正在连接 Figma…';
+  valid = false; $('export').disabled = true;
+  function ping() {
+    if (selectionReceived) { stopStartupTimer(); return; }
+    if (++startupAttempts > 10) {
+      stopStartupTimer();
+      $('selection').textContent = '未收到 Figma 的选择信息';
+      showStatus('连接超时。请关闭插件后重新运行；确认导入的是新版 manifest.json。仍失败时，可在 Plugins → Development → Show/Hide Console 查看报错。');
+      return;
+    }
+    post({ type: 'ready' });
+  }
+  startupTimer = setInterval(ping, 500); ping();
+}
+function setBusy(value) {
+  busy = value; $('cancel').style.display = value ? 'block' : 'none';
+  $('progress').style.display = value ? 'block' : 'none'; $('scale').disabled = value; $('allPng').disabled = value;
+  $('refresh').disabled = value;
+  for(const id of ['scope','scan','baseline','clearBaseline'])$(''+id).disabled=value;
+  for(const row of rows)for(const key of ['check','group','label','minWidth','maxWidth'])row[key].disabled=value;
+  updateExport();
+}
+function reset() {
+  if (zipUrl) URL.revokeObjectURL(zipUrl);
+  zipUrl = null; incoming = null; files = []; chunksBytes = 0; jsonParts = null; jsonLength = 0; currentDesign=null;latestDiff=null; $('download').hidden = true;
+}
+$('export').onclick = () => {
+  runMapping=mapping();
+  try {
+    for(const key of Object.keys(runMapping)){
+      const x=runMapping[key];for(const k of ['minWidth','maxWidth'])if(x[k]!=='' && (!Number.isFinite(Number(x[k]))||Number(x[k])<0||Number(x[k])>100000))throw new Error('断点宽度必须是 0–100000。');
+      if(x.minWidth!==''&&x.maxWidth!==''&&Number(x.minWidth)>Number(x.maxWidth))throw new Error('断点最小宽度不能大于最大宽度。');
+    }
+  }catch(e){showStatus(e.message);return;}
+  baselineForRun=baseline;
+  reset(); setBusy(true); showStatus('准备预览和图层数据…');
+  post({ type: 'export', mode:mode(),nodeIds:rows.length?rows.filter(r=>r.check.checked).map(r=>r.id):undefined, options: { scale: Number($('scale').value), allNodePng: $('allPng').checked } });
+};
+$('cancel').onclick = () => { post({ type: 'cancel' }); showStatus('正在取消，等待当前 Figma 导出操作结束…'); $('cancel').disabled = true; };
+$('refresh').onclick = () => { if (!busy) { if(mode()!=='selected'){$('scan').onclick();return;} showStatus('正在重新读取选择…'); requestSelection(); } };
+$('scope').onchange=()=>{valid=false;renderItems([]);if(mode()==='selected')requestSelection();else{$('selection').textContent='请点击扫描，然后勾选导出对象。';updateExport();}};
+$('scan').onclick=()=>{
+  if(mode()==='selected'){requestSelection();return;}
+  reset();setBusy(true);showStatus('正在按需加载页面并扫描…');post({type:'scan',scope:mode()});
+};
+$('baseline').onchange=async()=>{
+  const file=$('baseline').files&&$('baseline').files[0];if(!file)return;
+  try{
+    if(file.size>32*1024*1024)throw new Error('基线 JSON 超过 32 MiB，请拆分导出。');
+    const parsed=JSON.parse(await file.text());ExporterHandoff.framesOf(parsed);baseline=parsed;$('baselineInfo').textContent='已导入基线：'+file.name;
+  }catch(e){baseline=null;$('baselineInfo').textContent='基线无效：'+e.message;}
+};
+$('clearBaseline').onclick=()=>{baseline=null;$('baseline').value='';$('baselineInfo').textContent='已清除对比基线。';};
+$('download').onclick = () => {
+  if (!zipUrl) return;
+  const a = document.createElement('a'); a.href = zipUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+};
+window.onmessage = event => {
+  // Figma's host bridge can relay MessageEvents with a null or different source.
+  // Validate the Plugin API envelope and known message types instead of parent identity.
+  const m = event.data && event.data.pluginMessage;
+  if (!m || typeof m !== 'object' || !MESSAGE_TYPES.has(m.type)) return;
+  if (m.type === 'selection') {
+    if (typeof m.valid !== 'boolean' || typeof m.label !== 'string') return;
+    const first = !selectionReceived;
+    selectionReceived = true; stopStartupTimer(); valid = m.valid;
+    if(mode()==='selected'){
+      $('selection').textContent = m.label;
+      if(Array.isArray(m.items))renderItems(m.items);
+      updateExport();
+    }
+    if (first && !busy) showStatus(valid ? '已连接。点击“导出设计 ZIP”开始。' : '已连接。请选择 Frame / 组件，或扫描导出对象。');
+    return;
+  }
+  if(m.type==='candidates'){
+    if(m.scope!==mode())return;
+    setBusy(false);valid=false;renderItems(m.items||[]);$('selection').textContent='扫描到 '+rows.length+' 个对象';
+    showStatus(rows.length>100?'候选超过 100 个，请勾选最多 100 个。':'请勾选要导出的对象；可选填断点分组。');return;
+  }
+  if (m.type === 'begin') { reset(); currentRun = m.runId; $('cancel').disabled = false; setBusy(true); return; }
+  if (m.runId !== undefined && m.runId !== currentRun) return;
+  try {
+    if (m.type === 'progress') showStatus(m.text);
+    if (m.type === 'file-start') {
+      if (incoming || m.size < 0 || m.size > 200 * 1024 * 1024) throw new Error('文件传输状态异常');
+      incoming = { path: m.path, data: new Uint8Array(m.size), offset: 0 };
+    }
+    if (m.type === 'file-chunk') {
+      if (!incoming || incoming.path !== m.path || incoming.offset + m.bytes.length > incoming.data.length) throw new Error('文件分片异常');
+      incoming.data.set(m.bytes, incoming.offset); incoming.offset += m.bytes.length;
+      chunksBytes += m.bytes.length;
+      if (chunksBytes > 200 * 1024 * 1024) throw new Error('传输超过 200 MiB');
+    }
+    if (m.type === 'file-end') {
+      if (!incoming || incoming.path !== m.path || incoming.offset !== incoming.data.length) throw new Error('文件传输不完整');
+      files.push({ path: incoming.path, bytes: incoming.data }); incoming = null;
+    }
+    if (m.type === 'design-start') { jsonParts = []; jsonLength = 0; }
+    if (m.type === 'design-chunk') {
+      if (!jsonParts || typeof m.text !== 'string') throw new Error('JSON 分片异常');
+      jsonLength += m.text.length;
+      if (jsonLength > 32 * 1024 * 1024) throw new Error('设计 JSON 过大');
+      jsonParts.push(m.text);
+    }
+    if (m.type === 'design-end') {
+      if (!jsonParts) throw new Error('JSON 传输状态异常');
+      analyze(jsonParts.join('')); jsonParts = null;
+    }
+    if (m.seq) post({ type: 'ack', seq: m.seq, runId: currentRun });
+    if (m.type === 'complete') {
+      if (incoming || !files.some(f => f.path === 'design.json') || !(m.previewPaths||['preview.png']).every(path=>files.some(f=>f.path===path))) throw new Error('缺少必要文件');
+      if(files.reduce((n,f)=>n+f.bytes.length,0)>256*1024*1024)throw new Error('完整导出包超过 256 MiB，请拆分。');
+      const zip = ExporterZip.createZip(files);
+      zipUrl = URL.createObjectURL(new Blob([zip], { type: 'application/zip' })); filename = m.filename;
+      files = []; $('download').hidden = false; setBusy(false);
+      const warningText = m.warnings.length ? '\n警告 ' + m.warnings.length + ' 条，详见 design.json。\n' + m.warnings.slice(0, 2).map(w => w.operation + ': ' + w.message).join('\n') : '';
+      baseline=currentDesign;$('baselineInfo').textContent='下一次将与本次完成的导出比较；也可导入其他快照。';
+      showStatus('已完成：' + (m.statistics.frames||1)+' 个对象，'+m.statistics.nodes + ' 个图层，' + (zip.length / 1024 / 1024).toFixed(2) + ' MiB。点击“保存 ZIP”。\n差异状态：'+latestDiff.status + warningText);
+    }
+    if (m.type === 'error') {
+      if (!selectionReceived) { stopStartupTimer(); $('selection').textContent = '读取选择失败'; }
+      reset(); setBusy(false); $('cancel').disabled = false; showStatus(m.message);
+    }
+  } catch (e) { post({ type: 'cancel' }); reset(); setBusy(false); showStatus('处理失败：' + e.message); }
+};
+window.addEventListener('error', event => {
+  stopStartupTimer(); $('selection').textContent = '插件界面运行出错';
+  showStatus('界面错误：' + (event.message || '请查看开发控制台')); setBusy(false);
+});
+requestSelection();
+</script>
+</body></html>

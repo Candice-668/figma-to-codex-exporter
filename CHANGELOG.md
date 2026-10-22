@@ -1,5 +1,17 @@
 # 更新记录
 
+## v1.1.0 — 2026-10-21
+
+- 在现有导出器上增加多对象批次导出，支持 Frame、Component、Component Set 和 Instance。多选时去除被已选祖先包含的重复对象。
+- 提供当前页面/全部 Figma 页面扫描及勾选；其他页面先通过 loadAsync 加载，不切换当前页面，不重复扫描已作为根对象的嵌套内容。
+- 单对象继续使用根目录 design.json + preview.png；多个对象使用独立 frames/<安全图层名>--<节点 ID>/ 目录，防止重名覆盖。
+- 增加旧 design.json 导入和会话内上次成功导出基线，输出 diff.json、diff.md；比较尺寸、位置、文字、样式、图层层级、组件属性和引用资源。
+- 增加 responsive.json，保留布局观测值、待验证的 CSS 建议，以及用户填写的页面分组、断点标签和宽度范围；标记重叠范围。
+- ZIP 增加 CODEX-README.md；可读取的 reactions 保留原值，真实网页交互和上传原图文件名等不可用信息明确标注。
+- 保持离线、零第三方依赖、Plugin API 实现和 Windows Desktop 126.6.8 安装路径。增加批次/分析模块及构建后界面端到端测试。
+
+构建和自动化通过不等于实际 Figma Desktop 已验证。Git 推送仍依赖已授权且可用的本地认证。
+
 ## v1.0.1 — 2026-10-21
 
 - 修复启动消息处理对 `event.source === parent` 的过度限制，改为校验 Figma Plugin API 消息封装、消息类型和选择字段。

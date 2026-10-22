@@ -43,3 +43,12 @@ Desktop.ini
 .cache/
 
 # dist/ is intentionally committed for direct Figma Desktop import.
+
+# Additional credential files and private key directories
+.ssh/
+.aws/
+id_rsa*
+id_ed25519*
+auth.json
+token*.json
+*.token

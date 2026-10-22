@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;padding:22px;background:var(--figma-color-bg,#fafafa);color:var(--figma-color-text,#202124);font:12px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}h1{font-size:20px;margin:4px 0}p{margin:8px 0}.muted{color:var(--figma-color-text-secondary,#777)}.badge{font-size:10px;letter-spacing:1.5px;color:#6377ed}.card{padding:12px;border:1px solid var(--figma-color-border,#ddd);border-radius:10px;margin:12px 0}label{display:block;margin:8px 0}select,input[type=text],input[type=number]{background:var(--figma-color-bg,#fff);color:inherit;border:1px solid var(--figma-color-border,#ccc);border-radius:4px;padding:5px}select{width:100%}input{accent-color:#5668e8}button{width:100%;padding:9px;border:0;border-radius:7px;background:#5668e8;color:#fff;font-weight:600;cursor:pointer;margin-top:7px}button:disabled{opacity:.45;cursor:default}.secondary{background:transparent;color:inherit;border:1px solid var(--figma-color-border,#ccc)}#status{margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto}#cancel,progress{display:none}progress{width:100%}.foot{font-size:11px}.row{padding:9px 0;border-bottom:1px solid var(--figma-color-border,#ddd)}.row label{overflow-wrap:anywhere}.mapping{display:grid;grid-template-columns:1fr 1fr;gap:5px}.mapping input{width:100%;min-width:0}#candidates{max-height:240px;overflow:auto}.inline{display:flex;gap:8px}.inline>*{flex:1}input[type=file]{width:100%}
+</style></head><body>
+<div class="badge">LOCAL DESIGN HANDOFF · v1.1.0</div><h1>Figma to Codex Exporter</h1>
+<p class="muted">批量设计交付 · 版本对比 · 响应式辅助</p>
+<label>导出范围<select id="scope"><option value="selected">当前选中的 Frame / 组件 / 实例</option><option value="current-page">扫描当前页面</option><option value="document">扫描全部 Figma 页面</option></select></label>
+<button class="secondary" id="scan">扫描导出对象</button>
+<div class="card"><div id="selection">正在连接 Figma…</div><button class="secondary" id="refresh">刷新选择</button><div id="candidates"></div></div>
+<p class="muted foot">每批最多 100 个。嵌套对象随父级完整导出。可选填同一页面分组、断点标签及最小/最大视口宽度；留空不推断媒体查询。</p>
+<div class="inline"><label>PNG 清晰度<select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="3">3×</option></select></label><label><input type="checkbox" id="allPng"> 每个可见图层额外导出 PNG</label></div>
+<div class="card"><label>旧版本快照（可选，导入 design.json）<input type="file" id="baseline" accept=".json,application/json"></label><div id="baselineInfo" class="muted">未设置基线；下次导出可与本次成功结果比较。</div><button class="secondary" id="clearBaseline">清除对比基线</button></div>
+<button id="export" disabled>导出设计 ZIP</button><button id="download" hidden>保存 ZIP</button><button class="secondary" id="cancel">取消导出</button>
+<progress id="progress"></progress><div id="status" role="status" aria-live="polite">请选择导出对象。</div>
+<p class="muted foot">本地处理 · 无网络 / Token / 付费功能<br>ZIP 包含 JSON、预览、SVG/PNG、差异、响应式数据及 Codex 说明。原型数据不等于实际网页行为。</p>
+<script>/* ZIP_MODULE */</script><script>/* HANDOFF_MODULE */</script><script>/* UI_MODULE */</script>
+</body></html>

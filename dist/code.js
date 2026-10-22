@@ -1,5 +1,5 @@
 (function(){
-const __exporter = (function(){const module={exports:{}};
+const factories={"exporter": function(module,load){
 'use strict';
 
 const NODE_FIELDS = [
@@ -17,7 +17,7 @@ const NODE_FIELDS = [
   'fillStyleId','strokeStyleId','effectStyleId','gridStyleId','boundVariables','explicitVariableModes','exportSettings',
   'vectorPaths','vectorNetwork','arcData','pointCount','innerRadius',
   'componentPropertyReferences','componentProperties','componentPropertyDefinitions','variantProperties','overrides','exposedInstances',
-  'description','descriptionMarkdown','documentationLinks'
+  'description','descriptionMarkdown','documentationLinks','reactions'
 ];
 const TEXT_FIELDS = ['characters','fontName','fontSize','fontWeight','lineHeight','letterSpacing','textAlignHorizontal','textAlignVertical',
   'textAutoResize','textCase','textDecoration','paragraphIndent','paragraphSpacing','listSpacing','hangingPunctuation','hangingList',
@@ -131,7 +131,7 @@ function createExporter(api, hooks) {
         const raw = await image.getBytesAsync(); check();
         const path = 'assets/images/' + safeName(hash) + '.' + imageExtension(raw);
         await addFile(path, raw);
-        const asset = { path, kind: 'original-image', imageHash: hash, bytes: raw.length };
+        const asset = { path, kind: 'original-image', imageHash: hash, bytes: raw.length, sourceFilename:null, sourceFilenameStatus:'unavailable: Plugin API exposes image hash and bytes, not the uploaded filename' };
         assetIndex.push(asset); return path;
       } catch (e) { check(); if (e.fatal) throw e; warn(nodeId, 'image:' + hash, e); return null; }
     })();
@@ -150,7 +150,7 @@ function createExporter(api, hooks) {
       const bytes = await node.exportAsync(settings); check();
       const path = 'assets/nodes/' + safeName(node.id) + '-' + safeName(node.name) + '.' + format.toLowerCase();
       await addFile(path, bytes);
-      const asset = { nodeId: node.id, path, kind: 'rendered-node', format, scale: format === 'PNG' ? scale : undefined };
+      const asset = { nodeId: node.id, originalName:node.name, path, kind: 'rendered-node', format, scale: format === 'PNG' ? scale : undefined };
       data.assets.push(asset); assetIndex.push(asset);
     } catch (e) { check(); if (e.fatal) throw e; warn(node.id, 'export:' + format, e); }
   }
@@ -160,6 +160,8 @@ function createExporter(api, hooks) {
     if (hooks.progress) hooks.progress('读取 ' + count + '：' + node.name);
     const data = { id: node.id, name: node.name, type: node.type, parentId, siblingIndex, depth, assets: [] };
     read(node, NODE_FIELDS, data);
+    data.interaction = { prototypeReactions: data.reactions===undefined ? {status:'unavailable',reason:'Not exposed or readable for this node/client.'} : {status:'observed',field:'reactions'},
+      productionBehavior:{status:'manual-input-required',reason:'Prototype metadata does not define real website events, backend requests or exact runtime behavior.'} };
     data.effectiveVisible = inheritedVisible && data.visible !== false;
     if (data.absoluteTransform && rootInverse) data.transformRelativeToRoot = multiply(rootInverse, data.absoluteTransform);
     if (node.type === 'TEXT') {
@@ -200,7 +202,7 @@ function createExporter(api, hooks) {
   return {
     cancel() { cancelled = true; },
     async run(root, requested) {
-      if (!root || root.type !== 'FRAME') throw new Error('请只选择一个 Frame');
+      if (!root || !['FRAME','COMPONENT','COMPONENT_SET','INSTANCE'].includes(root.type)) throw new Error('请选择 Frame 或组件（Frame / Component / Instance）');
       const options = { scale: 1, allNodePng: false, includeHiddenAssets: false, ...requested, root };
       options.scale = [1, 2, 3].includes(Number(options.scale)) ? Number(options.scale) : 1;
       if (root.width <= 0 || root.height <= 0) throw new Error('Frame 尺寸必须大于 0');
@@ -211,8 +213,8 @@ function createExporter(api, hooks) {
       const tree = await walk(root, null, 0, 0, true, options, inverse(root.absoluteTransform));
       return {
         files,
-        design: { schemaVersion: '1.0.0', generator: 'Figma to Codex Exporter', generatorVersion: '1.0.1',
-          exportedAt: new Date().toISOString(), document: { name: api.root.name, pageId: api.currentPage.id, pageName: api.currentPage.name },
+        design: { schemaVersion: '1.0.0', generator: 'Figma to Codex Exporter', generatorVersion: '1.1.0',
+          exportedAt: new Date().toISOString(), document: { name: api.root.name, pageId: pageOf(root, api.currentPage).id, pageName: pageOf(root, api.currentPage).name },
           coordinates: { unit: 'px', xY: 'relative to parent, including root x/y on page', absoluteTransform: 'page coordinates', transformRelativeToRoot: 'inverse(root.absoluteTransform) × node.absoluteTransform', siblingIndex: 'Figma children order, bottom to top; itemReverseZIndex may change Auto Layout paint order' },
           options: { scale: options.scale, allNodePng: !!options.allNodePng, includeHiddenAssets: !!options.includeHiddenAssets },
           preview: { path: 'preview.png', requestedScale: options.scale, effectiveScale: previewScale },
@@ -226,6 +228,10 @@ function boundedScale(node, scale) {
   const w = Math.max(1, node.width || 1), h = Math.max(1, node.height || 1);
   return Math.min(scale, 8192 / Math.max(w, h), Math.sqrt(16000000 / (w * h)));
 }
+function pageOf(node, fallback) {
+  for (let p = node; p; p = p.parent) if (p.type === 'PAGE') return p;
+  return fallback;
+}
 function multiply(a, b) {
   return [[a[0][0]*b[0][0]+a[0][1]*b[1][0], a[0][0]*b[0][1]+a[0][1]*b[1][1], a[0][0]*b[0][2]+a[0][1]*b[1][2]+a[0][2]],
     [a[1][0]*b[0][0]+a[1][1]*b[1][0], a[1][0]*b[0][1]+a[1][1]*b[1][1], a[1][0]*b[0][2]+a[1][1]*b[1][2]+a[1][2]]];
@@ -237,18 +243,117 @@ function inverse(t) {
   const a = t[1][1]/d, b = -t[0][1]/d, c = -t[1][0]/d, e = t[0][0]/d;
   return [[a,b,-a*t[0][2]-b*t[1][2]],[c,e,-c*t[0][2]-e*t[1][2]]];
 }
-module.exports = { createExporter, clean, safeName, boundedScale, inverse, multiply };
+module.exports = { createExporter, clean, safeName, boundedScale, inverse, multiply, pageOf };
 
-return module.exports;})();
+},
+"batch": function(module,load){
 'use strict';
-const { createExporter, safeName } = __exporter;
-figma.showUI(__html__, { width: 440, height: 570, themeColors: true });
+const { createExporter, safeName, pageOf } = load("exporter");
+const ROOT_TYPES = new Set(['FRAME','COMPONENT','COMPONENT_SET','INSTANCE']);
+function selectionRoots(nodes) {
+  const input = Array.from(nodes);
+  if (input.some(n=>!ROOT_TYPES.has(n.type))) throw new Error('请选择 Frame、组件或实例；不支持将文字、Group 作为导出根节点。');
+  const eligible = [...new Map(input.map(n=>[n.id,n])).values()];
+  const ids = new Set(eligible.map(n => n.id));
+  return eligible.filter(n => {
+    for (let p = n.parent; p && p.type !== 'PAGE'; p = p.parent) if (ids.has(p.id)) return false;
+    return true;
+  });
+}
+async function scanRoots(api, scope, check) {
+  const pages = scope === 'document' ? Array.from(api.root.children) : [api.currentPage];
+  const roots = []; let visited = 0;
+  for (const page of pages) {
+    if (check) check();
+    if (page !== api.currentPage) {
+      if (typeof page.loadAsync !== 'function') throw new Error('当前客户端不支持跨页面加载，请使用当前页面模式。');
+      await page.loadAsync();
+    }
+    const stack = Array.from(page.children).reverse();
+    while (stack.length) {
+      if (check) check();
+      const n = stack.pop();
+      if (++visited > 50000) throw new Error('扫描超过 50000 个图层，请改用当前页面或多选导出。');
+      if (ROOT_TYPES.has(n.type)) {
+        roots.push(n);
+        if (roots.length > 500) throw new Error('候选超过 500 个，请改用当前页面或多选导出。');
+        // A root already recursively contains its children. Do not duplicate nested frames.
+      } else if ('children' in n) { const children=Array.from(n.children);for(let i=children.length-1;i>=0;i--)stack.push(children[i]); }
+    }
+  }
+  return roots;
+}
+function utf8(s) {
+  const out = [];
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (c < 128) out.push(c);
+    else if (c < 2048) out.push(192|(c>>6),128|(c&63));
+    else if (c < 65536) out.push(224|(c>>12),128|((c>>6)&63),128|(c&63));
+    else out.push(240|(c>>18),128|((c>>12)&63),128|((c>>6)&63),128|(c&63));
+  }
+  return Uint8Array.from(out);
+}
+function createBatchExporter(api, hooks) {
+  hooks = hooks || {};
+  let active = null, cancelled = false;
+  function check() { if (cancelled) throw new Error('已取消导出'); }
+  return {
+    cancel() { cancelled = true; if (active) active.cancel(); },
+    async run(input, options) {
+      const roots = selectionRoots(input);
+      if (!roots.length || roots.length > 100) throw new Error('每次请选择 1–100 个导出对象。');
+      const files = [], frames = []; let binaryBytes = 0, nodeCount = 0, fileCount = 0;
+      async function emit(path, bytes) {
+        check(); fileCount++; binaryBytes += bytes.length;
+        if (fileCount > 10000 || binaryBytes > 200*1024*1024) throw new Error('批次超过 10000 个文件或 200 MiB，请拆分导出。');
+        if (hooks.file) { await hooks.file(path, bytes); files.push({path,size:bytes.length}); }
+        else files.push({path,bytes});
+      }
+      for (let i = 0; i < roots.length; i++) {
+        check(); const root = roots[i], page = pageOf(root, api.currentPage);
+        const basePath = roots.length === 1 ? '' : 'frames/' + safeName(root.name) + '--' + safeName(root.id) + '/';
+        if (hooks.progress) hooks.progress('导出 '+(i+1)+'/'+roots.length+'：'+root.name);
+        active = createExporter(api, { file: (p,b) => emit(basePath+p,b), progress: hooks.progress });
+        const result = await active.run(root, options);
+        check(); nodeCount += result.design.statistics.nodes;
+        if (nodeCount > 20000) throw new Error('批次图层超过 20000 个，请拆分导出。');
+        frames.push({ id: root.id, name: root.name, type: root.type, page: {id:page.id,name:page.name}, basePath, design: result.design });
+        if (roots.length > 1) await emit(basePath+'design.json',utf8(JSON.stringify(result.design,null,2)));
+      }
+      active = null;
+      const design = frames.length === 1 ? frames[0].design : {
+        schemaVersion: '1.1.0', kind: 'batch', generator: 'Figma to Codex Exporter', generatorVersion: frames[0].design.generatorVersion,
+        exportedAt: new Date().toISOString(), document: {name:api.root.name}, frames,
+        preview: {path:frames[0].basePath+'preview.png',description:'First exported root; each frame has its own preview.'},
+        statistics:{nodes:nodeCount,frames:frames.length,assetFiles:frames.reduce((s,f)=>s+f.design.assets.length,0),binaryBytes},
+        warnings:frames.flatMap(f=>f.design.warnings.map(w=>({...w,frameId:f.id})))
+      };
+      return {design,files,frames};
+    }
+  };
+}
+module.exports = { ROOT_TYPES, selectionRoots, scanRoots, createBatchExporter, utf8 };
+
+}};
+const cache={};
+function load(id){if(!cache[id]){const m={exports:{}};cache[id]=m;factories[id](m,load);}return cache[id].exports;}
+'use strict';
+const { createExporter, safeName } = load("exporter");
+const { createBatchExporter, selectionRoots, scanRoots } = load("batch");
+figma.showUI(__html__, { width: 500, height: 760, themeColors: true });
 let active = null, runId = 0, sequence = 0, pending = null, cancelled = false;
+let scanning = false, candidates = new Map();
 function send(message) { figma.ui.postMessage(message); }
+function descriptor(n) {
+  let page = n; while (page.parent && page.type !== 'PAGE') page = page.parent;
+  return {id:n.id,name:n.name,type:n.type,width:n.width,height:n.height,pageName:page.type==='PAGE'?page.name:figma.currentPage.name};
+}
 function selection() {
   const nodes = figma.currentPage.selection;
-  send({ type: 'selection', valid: nodes.length === 1 && nodes[0].type === 'FRAME',
-    label: nodes.length === 1 ? nodes[0].name + ' · ' + nodes[0].type : '请选择一个 Frame' });
+  let roots=[];try { roots=selectionRoots(nodes); } catch (_) { /* Invalid selection is displayed, not thrown. */ }
+  send({ type: 'selection', valid: roots.length > 0 && roots.length <= 100,
+    label: roots.length ? '已选 '+roots.length+' 个对象' : '请选择 Frame、组件或实例',items:roots.map(descriptor) });
 }
 async function reliable(message) {
   if (cancelled) throw new Error('已取消导出');
@@ -283,19 +388,40 @@ figma.ui.onmessage = async message => {
     if (pending) pending.reject(new Error('已取消导出'));
     return;
   }
-  if (message.type !== 'export' || active) return;
-  const selected = figma.currentPage.selection;
-  if (selected.length !== 1 || selected[0].type !== 'FRAME') { send({ type: 'error', message: '请只选择一个 Frame 后再导出' }); return; }
+  if (message.type === 'scan' && !active && !scanning) {
+    scanning = true; cancelled = false; candidates = new Map();
+    try {
+      if (!['current-page','document'].includes(message.scope)) throw new Error('扫描范围无效。');
+      const roots = await scanRoots(figma,message.scope,()=>{if(cancelled)throw new Error('已取消扫描');});
+      candidates = new Map(roots.map(n=>[n.id,n]));
+      send({type:'candidates',items:roots.map(descriptor),scope:message.scope});
+    } catch(e) { send({type:'error',message:String(e.message||e)}); }
+    finally { scanning=false; }
+    return;
+  }
+  if (message.type !== 'export' || active || scanning) return;
+  let selected;
+  try {
+    if (message.mode && message.mode !== 'selected') {
+      if (!Array.isArray(message.nodeIds) || !message.nodeIds.length || message.nodeIds.length>100) throw new Error('请先扫描并勾选 1–100 个对象。');
+      selected = message.nodeIds.map(id=>{const n=candidates.get(id);if(!n || n.removed)throw new Error('候选已失效，请重新扫描。');return n;});
+    } else {
+      selected = selectionRoots(figma.currentPage.selection);
+      if (Array.isArray(message.nodeIds)) selected=selected.filter(n=>message.nodeIds.includes(n.id));
+    }
+    selected=selectionRoots(selected);
+    if (!selected.length || selected.length>100) throw new Error('请选择 1–100 个 Frame、组件或实例。');
+  } catch(e) { send({type:'error',message:String(e.message||e)});return; }
   runId++; cancelled = false;
   const root = selected[0];
   let lastProgress = 0;
-  active = createExporter(figma, {
+  active = createBatchExporter(figma, {
     file: transfer,
     progress: text => { if (Date.now() - lastProgress > 100) { send({ type: 'progress', text }); lastProgress = Date.now(); } }
   });
   send({ type: 'begin', runId });
   try {
-    const result = await active.run(root, message.options || {});
+    const result = await active.run(selected, message.options || {});
     // JSON also travels in bounded messages; encoding stays inside the UI.
     const json = JSON.stringify(result.design, null, 2);
     if (json.length > 32 * 1024 * 1024) throw new Error('设计 JSON 超过 32 Mi 字符，请拆分 Frame');
@@ -304,7 +430,7 @@ figma.ui.onmessage = async message => {
       await reliable({ type: 'design-chunk', text: json.slice(offset, offset + 64 * 1024) });
     }
     await reliable({ type: 'design-end' });
-    send({ type: 'complete', runId, filename: safeName(root.name) + '-codex.zip', statistics: result.design.statistics, warnings: result.design.warnings });
+    send({ type: 'complete', runId, filename: (selected.length===1?safeName(root.name):'figma-batch-'+selected.length) + '-codex.zip', previewPaths:result.frames.map(f=>f.basePath+'preview.png'), statistics: result.design.statistics, warnings: result.design.warnings });
   } catch (e) { send({ type: 'error', runId, message: String(e.message || e) }); }
   finally { active = null; selection(); }
 };

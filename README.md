@@ -1,124 +1,107 @@
 # Figma to Codex Exporter
 
-当前版本：**v1.0.1**。安装教程面向 **Windows Figma Desktop 126.6.8**。本版修复“正在读取”可能无限等待的消息接收兼容性问题，增加启动重试、超时提示和“刷新选择”。自动化测试通过，真实 Figma 桌面版修复效果尚待验收。
+**v1.1.0** · Windows Figma Desktop 126.6.8 本地开发插件。在现有 v1.0.1 项目上升级，使用 **Figma Plugin API**，无 Figma MCP、REST API、付费 Dev Mode、Token 或第三方运行依赖。插件不访问网络，不修改设计图层。
 
-首次安装：解压项目 → 打开桌面版 Design 文件 → 画布空白处右键 → **Plugins → Development → Import plugin from manifest…** → 选择项目根目录的 `manifest.json`。官方菜单也可从左上角 Figma 菜单进入。无需安装 npm 依赖。
+## Windows 安装和更新
 
-更新已安装版本：关闭插件，用本版完整文件覆盖原安装目录，然后从 **Plugins → Development → Figma to Codex Exporter** 重新运行。若项目目录改变，重新导入新的 manifest。窗口顶部应显示 **v1.0.1**；仍显示旧版本说明客户端加载的还是旧目录或旧窗口。
+1. 下载或克隆完整项目，放在固定目录，例如 `D:\FigmaPlugins\figma-to-codex-exporter`。GitHub 私有仓库需先登录有权限的账号。不要直接在 ZIP 内导入。
+2. 打开 Windows **Figma Desktop 126.6.8**，进入有编辑权限的 **Design 文件**。
+3. 画布空白处右键，或使用左上角 Figma 菜单：**Plugins → Development → Import plugin from manifest…**。
+4. 选择项目根目录 `manifest.json`，例如 `D:\FigmaPlugins\figma-to-codex-exporter\manifest.json`。它引用 `dist/code.js` 和 `dist/ui.html`，本项目包含已构建文件。
+5. 从 **Plugins → Development → Figma to Codex Exporter** 运行。窗口顶部应显示 **v1.1.0**。
 
-首次导出：左侧图层面板只选一个 Frame → 运行插件 → 确认显示 Frame 名称 → **导出设计 ZIP → 保存 ZIP**。启动选择信息未更新时先点“刷新选择”；约 5 秒未连接会给出具体提示。`design.json` 包含完整可读取参数，`preview.png` 用于对照，`assets` 包含素材。
+已安装旧版时：先关闭插件，保留自己的 manifest id，用本版源码、构建脚本及 dist 更新原安装目录后重新运行。若目录改变，重新导入新版 manifest。完整操作见 [Windows 教程](WINDOWS-INSTALL-126.6.8.md)。本版不会自动覆盖本地文件或强制更新客户端。
 
-详细中文图文路径说明见 [Windows 126.6.8 安装教程](WINDOWS-INSTALL-126.6.8.md)，验证边界见 [测试报告](TEST-REPORT.md)，版本记录见 [CHANGELOG](CHANGELOG.md)。
+manifest 中 `figma-to-codex-exporter-local` 是本地开发标识。若客户端要求正式分配的 id，通过 Development → New plugin 创建自己的空模板，再把生成的 id 填入本项目 manifest，其余入口保持不变。组织禁用插件或导出时，本插件不能绕过限制。
 
-Windows Figma 桌面版的本地开发插件。选中一个 Frame，将设计交付资料打包下载为 ZIP。直接使用 **Figma Plugin API**，不使用 Figma MCP、REST API、Dev Mode 或付费接口，不需要 Token。插件禁止网络请求，不修改设计图层。
+安装运行不需要 Node.js；修改源码/重建时才需要 Node.js 18+。实际桌面兼容性仍需在目标客户端验收；本次测试情况见 [测试报告](TEST-REPORT.md)，不能把模拟测试当成实机测试。
 
-## 1. Windows 安装（无需编译）
+## 批量导出
 
-1. 解压交付 ZIP，将整个 `figma-to-codex-exporter` 文件夹放到固定目录，例如 `D:\FigmaPlugins\figma-to-codex-exporter`。不要直接在压缩包里导入。
-2. 打开 **Figma 桌面应用**，进入一个你可编辑的 **Figma Design** 文件；不要停留在首页或 FigJam。
-3. 左上角 Figma 菜单 → **Plugins（插件）→ Development（开发）→ Import plugin from manifest…（从 manifest 导入）**。
-4. 选择解压文件夹根目录的 `manifest.json`，不是 `package.json`，也不是 `dist` 文件夹。
-5. 在图层面板选中一个 Frame。选中内部文字或 Group 时请先切换到其 Frame；不要同时选多个。
-6. **Plugins → Development → Figma to Codex Exporter**。
-7. 选择 PNG 清晰度；通常用 1×，需要更清晰时用 2×。复杂合成图可勾选“为每个可见图层额外生成 PNG”。
-8. 点击 **导出设计 ZIP**，等待出现“已完成”，再点击 **保存 ZIP**。Figma/Windows 弹出保存窗口时选择目录；若自动下载则查看系统下载目录。
+有三种范围：
 
-已经包含 `dist/code.js` 和 `dist/ui.html`。**安装使用不需要 Node.js、npm install、付费 Figma 套餐或开发者 Token。** 需要有可运行开发插件的文件权限；组织管理员禁用插件或禁用导出时，插件不能绕过其策略。
+| 模式 | 操作 |
+| --- | --- |
+| 当前选中 | 在 Figma 图层面板多选 Frame、组件、组件集或实例，打开插件后勾选要导出的对象 |
+| 当前页面 | 切换范围，点击“扫描导出对象”，一次勾选多个页面设计/Banner/组件 |
+| 全部 Figma 页面 | 切换范围并扫描，按需加载其他页面，从列表勾选对象；不切换当前页面 |
 
-manifest 中的 `figma-to-codex-exporter-local` 是本地开发标识，不是 Figma 分配的 Community 发布 id。若客户端拒绝本地标识，可用 Development → New plugin 创建空插件，将 Figma 为你生成的真实 id 替换进本项目 manifest，再重新导入；不要复制别人的发布 id。发布到 Community 不在本次交付范围。
+同一批次最多 100 个根对象。扫描会穿过 Section/Group，找到 Frame/组件后停止向其内部寻找其他根对象；内部图层仍由递归导出器完整采集。选中父子两个对象时保留祖先，防止重复资源。需要单独导出嵌套 Frame 时，使用“当前选中”。
 
-## 2. 导出包
+选择 PNG 的 1×/2×/3×清晰度。默认保存矢量 SVG、图片原字节和图片填充图层 PNG；需要所有子图层切图时勾选额外 PNG。点击 **导出设计 ZIP**，完成后点击 **保存 ZIP**。启动连接失败可刷新选择；扫描模式下“刷新选择”会重新扫描。
+
+### 导出目录
 
 | 路径 | 内容 |
 | --- | --- |
-| `design.json` | 完整图层树、尺寸坐标、样式、文本分段、组件信息、素材索引、错误警告 |
-| `preview.png` | 选中 Frame 的合成预览 |
-| `assets/nodes/*.svg` | 可见矢量图层；另包含设置 SVG 导出的图层 |
-| `assets/nodes/*.png` | 图片填充图层、设置导出的图层，或勾选额外 PNG 后的全部可见子图层 |
-| `assets/images/*` | Figma 可读取的图片原始字节，按 imageHash 去重；可能是 PNG/JPEG/GIF/WebP |
+| `design.json` | 单对象沿用旧的 root 结构；多对象为 kind=batch，frames 中包含每个对象的完整 design、来源页面和 basePath |
+| `preview.png` | 单对象整体预览 |
+| `frames/<安全图层名>--<节点ID>/design.json` | 批量导出的每个对象独立参数 |
+| `frames/<安全图层名>--<节点ID>/preview.png` | 批量导出的每个对象独立预览 |
+| `[对象目录/]assets/nodes/*.svg` | 矢量图层，以及配置了 SVG 导出的图层 |
+| `[对象目录/]assets/nodes/*.png` | 图片填充、设置了导出的图层，或勾选额外 PNG 后的可见子图层 |
+| `[对象目录/]assets/images/*` | Figma 可读的原图字节；同一对象内部按 imageHash 去重，跨对象独立保存 |
+| `diff.json` / `diff.md` | 结构化差异与中文摘要，首次无基线时明确写 no-baseline |
+| `responsive.json` | 布局事实、待验证建议、用户指定断点分组及不可用信息 |
+| `CODEX-README.md` | 可交给 Codex 的读取顺序、路径约定和实现注意事项 |
 
-无图片或无矢量的设计不会凭空生成对应素材。未知图片格式使用 `.bin`，图片图层仍尝试生成 `.png`。原图保留裁切前数据，图层 PNG 保留裁切、效果和叠加后的观感。SVG 遇到混合栅格内容时可能内嵌图片。隐藏图层始终保留 JSON 和图片原始字节，不单独生成其 SVG/PNG。字体只导出名称和样式信息，不打包字体文件。
+每个子 design 的图片/素材路径相对其 `basePath`；顶层批次 `preview.path` 指向第一个对象的预览，其余对象有各自预览。没有对应素材时不生成假素材。单对象结构保持向后兼容，只添加字段与说明文件。
 
-## 3. 字段约定
+图层原名保留在 `name` / `originalName`，文件名替换 Windows 非法字符并附节点 ID；超过 72 字符会截短安全文件名，不截短 JSON 原名。PNG 使用等比例 SCALE，SVG 使用 Figma 自身导出的 viewBox；阴影/描边可能扩大渲染边界。**图片最初上传时的源文件名不由 Plugin API 提供**，因此 `sourceFilename` 为 null 并附不可用原因。未知原图编码保存为 bin，仍尝试生成对应图层 PNG；原图也可能是 JPG/GIF/WebP。
 
-| 要求 | `design.json` 对应字段 |
+## 完整设计参数
+
+| 类型 | 主要字段 |
 | --- | --- |
-| 尺寸和坐标 | `root` 及每个子节点的 `x/y/width/height/rotation/relativeTransform/absoluteTransform/absoluteBoundingBox/absoluteRenderBounds/transformRelativeToRoot` |
-| 文本及字体 | `text.characters/fontName/fontSize/fontWeight/lineHeight/letterSpacing`，混合样式见 `text.segments` |
-| 颜色、渐变、透明度 | `fills/strokes/opacity/blendMode`；Paint 保留 `color/opacity/gradientStops/gradientTransform` 等原生字段 |
-| 描边、阴影、圆角 | `strokeWeight/strokeAlign` 等、`effects`、`cornerRadius` 及四个独立角半径 |
-| Auto Layout | `layoutMode/layoutWrap/layoutSizingHorizontal/layoutSizingVertical/primaryAxis* /counterAxis*` |
-| Padding 和 Gap | `paddingTop/Right/Bottom/Left/itemSpacing/counterAxisSpacing`，Grid 使用 `gridRowGap/gridColumnGap` 等 |
-| 层级 | `children/parentId/siblingIndex/depth/effectiveVisible` |
-| 组件 | `mainComponent/componentProperties/variantProperties/overrides/componentPropertyDefinitions/componentPropertyReferences/key/remote` |
-| 图片与素材 | Paint 中的 `assetPath`、节点的 `assets`、顶层 `assets` |
-| 样式与变量 | `styles` 为引用样式快照；`variables` 保留别名关联和可读的 `valuesByMode` |
-| 异常 | `warnings`，包含节点 id、操作及错误原因 |
+| 尺寸、坐标、旋转 | x/y/width/height/rotation、relativeTransform、absoluteTransform、transformRelativeToRoot、bounding/render bounds |
+| 文本、字体、混合样式 | text.characters/fontName/fontSize/fontWeight/lineHeight/letterSpacing/textAlign*、text.segments |
+| 颜色、渐变、透明度 | fills/strokes/opacity/blendMode、Paint 中的 color/gradientStops/gradientTransform/opacity |
+| 描边、阴影、圆角 | stroke*、effects、cornerRadius、四个独立角、cornerSmoothing |
+| Auto Layout、间距、约束 | layoutMode/layoutWrap/layoutSizing*、primaryAxis*/counterAxis*、padding*、itemSpacing、constraints、min/maxWidth/Height、Grid 字段 |
+| 层级、可见性 | children/parentId/siblingIndex/depth/visible/effectiveVisible、mask 和 clipping |
+| 组件 | mainComponent、componentProperties、componentPropertyDefinitions、variantProperties、overrides、组件集和 key |
+| 样式、变量 | styles、variables 的可读取引用快照及 valuesByMode；不推断生产主题切换 |
+| 原型与不可用内容 | reactions 若可读则保留；interaction 中单独注明原型读取状态和真实网页行为需手动补充 |
 
-- 未被此类型图层支持的字段省略；API 的 `figma.mixed` 编码为 `{"mixed":true}`，不使用虚假的统一字号或颜色。渐变/颜色数值沿用 Figma 原值（通常 0–1），无需猜测 hex。
-- `x/y` 是相对父级坐标；根节点的 x/y 相对页面。`absoluteTransform` 是页面矩阵。`transformRelativeToRoot` 使用根 Frame 逆矩阵计算，适用于旋转和嵌套；不要直接拿绝对 x/y 相减还原旋转设计。
-- `children`/`siblingIndex` 使用 Figma 原顺序（底部到顶部）。Auto Layout 的 `itemReverseZIndex`、mask、blendMode 也影响最终合成，需同时参考预览。
-- 文本分段 `start/end` 沿用 JS/Figma 的 UTF-16 索引。行高保留 AUTO/PIXELS/PERCENT，字间距保留原单位。字体文件缺失可能使目标网页换行不同。
-- 样式和变量只解析图层已引用、当前 API 有权访问的内容。变量保留模式值和 id，不擅自推断完整主题或导出整个团队库；远程主组件不可用时记录 null/警告，实例自身子图层仍递归读取。
-- 视频、交互原型、动效、字体二进制、外部库全量内容、响应式断点推断和自动生成网页不属于本插件范围。
+不支持或不可读取的属性省略/记录 warnings；`figma.mixed` 编码为 `{"mixed":true}`，具体样式见文本分段。颜色一般沿用 0–1 浮点值，行高和字间距保留 AUTO/PIXELS/PERCENT 单位。文本索引沿用 UTF-16。`x/y` 相对父级，绝对矩阵相对页面，根相对矩阵处理旋转；不要用绝对 x/y 直接相减代替矩阵计算。层级顺序还应结合 itemReverseZIndex、mask 与混合模式验证。
 
-## 4. 交给 Codex
+不打包字体文件，也不自动生成网站、手机页面、视频、动效或后端。远程组件/样式只读取当前 API 能访问的内容，不导出整个团队库。缺字体或不可用素材可能改变预览或最终网页，需检查 warnings。
 
-将插件生成的 ZIP 上传到 Codex，可附上以下任务描述：
+## 版本差异检测
 
-> 请读取 design.json，以 preview.png 为视觉基准，用 assets 中的素材实现页面。优先还原 Auto Layout、Padding、Gap、字体和组件关系；正确处理混合文本和旋转矩阵。先检查 warnings 并说明缺失资源，不要自行替换品牌素材。需要响应式适配时请在现有布局基础上补充。
+- 同一插件窗口中，下次成功导出自动与上次完成的快照比较。
+- 跨会话比较：解压旧 ZIP，导入其中的**顶层 design.json**。支持本插件 v1.0.0 / v1.0.1 单对象快照和 v1.1.0 快照；不直接导入 ZIP。可清除或更换基线。
+- 同一 Figma 文件中的节点按 ID 对应；比较 geometry、text、appearance、layout、layers、components，并标出引用 styles/variables 的变化。
+- 新增/移除是相对于两次**导出范围**而言，不能直接断言图层已从 Figma 文件删除。复制到其他文件可能改变 ID，或产生碰巧相同的 ID；文件名相同也不能证明文件身份。报告注明 identityConfidence 和 requiresSameFigmaFile；名称不同则拒绝可靠对比，显示 incompatible-source。
+- 不把时间戳、预览清晰度或生成素材路径变化当成视觉变化。最多输出 2000 条差异；较大的字段只保留片段，计数/截断信息写入报告，完整值仍在新旧 JSON。
+- 基线导入上限 32 MiB，并校验格式、节点 ID 唯一性、图层数量和深度。无基线或基线不兼容时不会虚构差异。
 
-## 5. 源代码与构建
+## 响应式布局辅助
 
-| 文件 | 作用 |
-| --- | --- |
-| `manifest.json` | 本地插件入口与最小网络权限 |
-| `src/exporter.js` | 递归读取、组件/样式/变量解析、图片和图层导出 |
-| `src/main.js` | Figma 沙箱入口、选择校验、取消和 ACK 分片传输 |
-| `src/ui.html` / `src/ui.js` | 设置、进度、错误及 ZIP 保存界面 |
-| `src/zip.js` | ZIP32 STORE 写入、UTF-8 路径和 CRC32，无第三方依赖 |
-| `scripts/build.cjs` | 将源代码打包到 dist；UI 脚本内联，无 CDN |
-| `scripts/package.cjs` | 构建、运行测试后打包完整项目 |
-| `tests/*.test.cjs` | Node 自动化测试，含模拟沙箱/UI 端到端流程 |
+每个候选对象可选填四项：**页面分组、断点标签、最小视口宽度、最大视口宽度**。例如桌面 Home Frame 填 `Home / Desktop / 1024 / 留空`，手机 Home Frame 填 `Home / Mobile / 留空 / 767`。两个对象会在 responsive.json 中成为用户指定的一组，并标注未覆盖的范围需要开发决定；重叠范围会有警告。
 
-修改源码需安装 Node.js 18+。PowerShell 中进入项目目录执行：
+`observed` 保留原始约束、Auto Layout、Padding、Gap、尺寸模式等；`hints` 给出可考虑的 flex/grid/wrap 建议，并标记 requiresValidation。Frame 的 1440/390 等宽度只是设计样本，**不是自动得到的 CSS 媒体查询阈值**。留空时 breakpoint.source=unavailable，不按名字猜测同一页面或默认断点。插件辅助 Codex 实现手机端，不替代浏览器中的字体、换行和断点验证。
+
+## 构建和测试
+
+无 npm 依赖，无需 npm install。PowerShell 进入项目目录后执行：
 
 ```powershell
 node scripts/build.cjs
 node --test tests/*.test.cjs
+node scripts/verify.cjs
 node scripts/package.cjs
+.\scripts\verify-zip.ps1
 ```
 
-也可双击 `build.cmd` 构建、`test.cmd` 测试；npm 用户可执行 `npm run build`、`npm test`、`npm run package`。没有 npm 依赖，不需要 npm install。构建后关闭并重新运行 Figma 插件即可加载新代码。打包输出在项目同级 `outputs` 目录。
+或使用 `npm run build` / `npm test` / `npm run package`，也可双击 build.cmd / test.cmd。打包脚本先构建并测试；输出在项目同级 outputs，名称来自 package.json。验证脚本生成不提交到 Git 的 BUILD-VERIFICATION.json。
 
-## 6. 性能和错误处理
+核心源码：exporter.js（原递归导出器）、batch.js（扫描/批次/取消）、handoff.js（差异和响应式分析）、main.js（Figma 沙箱及 ACK 传输）、ui.js/ui.html（界面）、zip.js（ZIP32/CRC32）。构建将模块和脚本内联到 dist，不加载外部资源。
 
-- 二进制文件用 256 KiB 分片，JSON 用 64 Ki 字符分片，每片收到 ACK 后再发下一片，30 秒未确认则中止。
-- 单次二进制素材上限 200 MiB，JSON 上限 32 Mi 字符，素材文件上限 10,000、图层上限 20,000、嵌套深度上限 200。超过限制应拆分 Frame。
-- PNG 请求清晰度 1×/2×/3×；基于节点尺寸自动限制长边 8192 px 和约 1600 万像素。阴影溢出等实际输出边界仍由 Figma 决定。`preview.effectiveScale` 记录缩放。
-- ZIP 用 STORE 标准格式，不额外压缩，兼容 Windows 解压；PNG/JPEG 本身已有压缩。大包在 UI 打包时仍占用内存，“全部图层 PNG”按需开启。
-- 预览失败和传输错误中止整个导出。个别不可读属性、不可用远程组件或素材失败会记录 warnings；界面也会显示警告数量。
-- 取消会等待正在执行的 Figma `exportAsync` 返回，Plugin API 不提供强行中断该调用的能力。
-- 如果“保存 ZIP”没有反应，先确认界面已显示“已完成”，再点一次；查看 Figma/系统下载或保存窗口。更换本地目录不会自动更新开发插件的 manifest 路径，移动后需重新导入。
+限制：批次最多 100 个根对象、20000 图层、200 层嵌套、10000 文件；扫描最多 50000 图层及 500 个候选；二进制/对象 JSON 传输合计最多 200 MiB，最终完整包最多 256 MiB，顶层 JSON 最多 32 Mi 字符。PNG 根据节点尺寸限制长边 8192 px / 约 1600 万像素；实际效果边界由 Figma 决定。取消等待当前 exportAsync 返回。ZIP 用 STORE，不额外压缩；大批次仍有内存开销。
 
-## 7. 测试状态与桌面验收
+## Git 同步
 
-见 `TEST-REPORT.md`。**自动化通过不等于已完成 Figma 桌面实机测试。** 本次桌面控制环境未能启动，因此实际导入、Figma 渲染结果和系统保存对话框仍待实机验收。
+按 Codex 项目根目录 AGENTS.md，在任务完成且构建/测试通过后才提交/推送，不按行或每次保存上传。不提交密钥、Token、node_modules、临时文件；不强制推送。认证失败、远端历史未安全衔接或冲突时停止，并报告未同步。浏览器登录不代表本地 Git 已有推送凭据。
 
-在独立测试 Design 文件中建议按以下顺序验收：
-
-1. 无选择、多选、选中 Text/Group：应提示只选一个 Frame。
-2. Frame 内放入嵌套 Frame、Auto Layout、四边不同 Padding、Gap、混合中英文字号和颜色、渐变、圆角、描边、阴影、旋转图层。
-3. 添加两个复用同一图片的矩形、矢量图标、组件实例及隐藏组；保存并导出。
-4. 用 Windows 解压 ZIP，打开 preview.png 对比画布。核对 JSON 文本分段、矩阵、组件信息和有效可见性；同一 imageHash 应只保存一份原图。
-5. 打开 SVG 和 PNG 检查图像；留意 warnings。切换 2× 和“全部图层 PNG”再导出，检查素材数量和清晰度。
-6. 导出中取消，然后再次导出；输出应能重新成功。长页面检查 effectiveScale 是否按上限缩小。
-
-官方参考（2026-10-21 核对）：
-
-- [Plugin manifest](https://developers.figma.com/docs/plugins/manifest/)
-- [Plugin API](https://developers.figma.com/docs/plugins/)
-- [getStyledTextSegments](https://developers.figma.com/docs/plugins/api/properties/TextNode-getstyledtextsegments/)
-- [exportAsync](https://developers.figma.com/docs/plugins/api/properties/nodes-exportasync/)
-
-许可证：MIT，见 LICENSE。
+参考：[Plugin manifest](https://developers.figma.com/docs/plugins/manifest/) · [动态页面读取](https://developers.figma.com/docs/plugins/accessing-document/) · [文本分段](https://developers.figma.com/docs/plugins/api/properties/TextNode-getstyledtextsegments/) · [exportAsync](https://developers.figma.com/docs/plugins/api/properties/nodes-exportasync/)。许可证 MIT。

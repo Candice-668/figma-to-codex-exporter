@@ -1,6 +1,6 @@
 {
   "name": "figma-to-codex-exporter",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "Offline Figma Plugin API design handoff exporter",
   "scripts": {
